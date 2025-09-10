@@ -125,11 +125,8 @@ def check_syntax(code):
     return True, "Syntax is valid"
 
 def obfuscate(code):
-    """Obfuscation LuaU cực mạnh - Level Moonsec"""
-    # Bước 1: Phân tích và chuẩn bị
-    original_lines = code.split('\n')
-    
-    # Bước 2: Mã hóa string nhiều lớp
+    """Obfuscation LuaU cực mạnh - Level Moonsec Premium"""
+    # Bước 1: Mã hóa string nhiều lớp
     def multi_layer_string_encrypt(s):
         # 3 lớp mã hóa XOR với keys khác nhau
         keys = [random.randint(1, 255) for _ in range(3)]
@@ -183,7 +180,7 @@ end'''
     code = re.sub(r'"(.*?)"', encrypt_strings, code)
     code = re.sub(r"'(.*?)'", encrypt_strings, code)
     
-    # Bước 3: Đổi tên biến cực mạnh
+    # Bước 2: Đổi tên biến cực mạnh
     keywords = {'and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 
                'function', 'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 
                'repeat', 'return', 'then', 'true', 'until', 'while'}
@@ -217,13 +214,13 @@ end'''
     
     code = ''.join(tokens)
     
-    # Bước 4: Thêm junk code và control flow rối
+    # Bước 3: Thêm junk code tinh vi
     junk_functions = []
-    for i in range(20):  # Tạo 20 hàm junk
+    for i in range(15):  # Tạo 15 hàm junk
         func_name = f"_junk_func_{random.randint(10000, 99999)}"
         junk_code = f'''local function {func_name}()
     local _vars = {{}}
-    for i = 1, math.random(5, 15) do
+    for i = 1, math.random(3, 8) do
         table.insert(_vars, math.random(1000))
     end
     if math.random() > 0.5 then
@@ -238,16 +235,15 @@ end
     # Chèn junk functions vào đầu code
     code = '\n'.join(junk_functions) + '\n' + code
     
-    # Bước 5: Thêm control flow obfuscation
+    # Bước 4: Thêm control flow obfuscation
     lines = code.split('\n')
     obfuscated_lines = []
     
     # Thêm junk code ngẫu nhiên
     junk_patterns = [
         'if math.random() > 0.999 then local _ = os.clock() end',
-        'for _ = 1, math.random(1, 3) do break end',
+        'for _ = 1, math.random(1, 2) do break end',
         'repeat until math.random() > 0.5',
-        '::label_%d:: goto label_%d' % (random.randint(1000, 9999), random.randint(1000, 9999)),
         'do local _ = function() return math.random() end end',
         'while false do print("Never executed") end',
         'local _t = {unpack({1,2,3})}',
@@ -256,13 +252,13 @@ end
     
     for line in lines:
         obfuscated_lines.append(line)
-        # 40% chance thêm junk code sau mỗi dòng
-        if random.random() < 0.4 and line.strip() and not line.strip().startswith('--'):
+        # 30% chance thêm junk code sau mỗi dòng
+        if random.random() < 0.3 and line.strip() and not line.strip().startswith('--'):
             obfuscated_lines.append(random.choice(junk_patterns))
     
     code = '\n'.join(obfuscated_lines)
     
-    # Bước 6: Mã hóa toàn bộ code với nhiều lớp
+    # Bước 5: Mã hóa toàn bộ code với nhiều lớp
     # Lớp 1: XOR encryption
     key1 = random.randint(1, 255)
     encrypted_code = ''.join(chr(ord(c) ^ key1) for c in code)
@@ -270,25 +266,18 @@ end
     # Lớp 2: Base64
     b64_encoded = base64.b64encode(encrypted_code.encode()).decode()
     
-    # Lớp 3: Thêm junk data
-    junk_data = ''.join(random.choices('abcdef0123456789', k=random.randint(50, 200)))
-    final_encoded = b64_encoded + junk_data
-    
-    # Bước 7: Tạo decoder phức tạp
+    # Bước 6: Tạo decoder phức tạp dạng long string
     decoder = f'''--[[ Obfuscated with Premium LuaU Obfuscator ]]
 local function _decrypt_data(encrypted, key)
-    -- Remove junk data
-    local valid_data = encrypted:gsub("[^A-Za-z0-9+/=]", "")
-    
     -- Base64 decode
     local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
     local result = ""
     local buffer = 0
     local bits = 0
     
-    for i = 1, #valid_data do
-        if valid_data:sub(i, i) == "=" then break end
-        buffer = buffer * 64 + (b:find(valid_data:sub(i, i)) - 1)
+    for i = 1, #encrypted do
+        if encrypted:sub(i, i) == "=" then break end
+        buffer = buffer * 64 + (b:find(encrypted:sub(i, i)) - 1)
         bits = bits + 6
         if bits >= 8 then
             bits = bits - 8
@@ -312,19 +301,16 @@ local _anti_tamper = function()
     if _env.debug or _env.debugger then
         error("Execution in debug environment detected")
     end
-    if os.clock() < 0 then
-        while true do end
-    end
 end
 _anti_tamper()
 
 -- Decrypt and execute
-local _encrypted_data = "{final_encoded}"
+local _encrypted_data = "{b64_encoded}"
 local _decryption_key = {key1}
 local _decrypted_code = _decrypt_data(_encrypted_data, _decryption_key)
 
--- Thêm nhiều junk code trước execution
-for i = 1, math.random(3, 8) do
+-- Thêm junk code trước execution
+for i = 1, math.random(2, 5) do
     local _ = math.random(1000)
     if _ > 999 then
         local __ = function() return _ end
@@ -333,7 +319,14 @@ end
 
 loadstring(_decrypted_code)()'''
     
-    return decoder
+    # Bước 7: Chuyển thành dạng long string một dòng
+    # Thay thế các ký tự đặc biệt để tránh lỗi
+    decoder = decoder.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    
+    # Tạo final output dạng long string
+    final_output = f'--[[ Premium Obfuscator v1.0 ]] return(function(...)local S={{"{decoder}"}} loadstring(S[1])() end)()'
+    
+    return final_output
 
 @app.route('/api/obfuscate', methods=['POST'])
 def api_obfuscate():
@@ -355,10 +348,9 @@ def api_obfuscate():
 
     try:
         obfuscated = obfuscate(input_code)
-        # Bỏ qua kiểm tra syntax cho output vì nó đã được mã hóa
         return jsonify({
             'output': obfuscated,
-            'status': 'Mã hóa thành công! Code LuaU siêu an toàn (Level Moonsec).'
+            'status': 'Mã hóa thành công! Code LuaU siêu an toàn (Level Moonsec Premium).'
         })
     except Exception as e:
         return jsonify({'error': f'Lỗi trong quá trình mã hóa: {str(e)}'}), 500
