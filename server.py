@@ -30,7 +30,7 @@ def check_syntax(code):
         while i < len(line):
             c = line[i]
 
-            # Multi-line comment
+            # Multi-line commentk
             if not in_string and not in_longstring and line[i:i+4] == '--[[':
                 in_longstring = True
                 i += 4
