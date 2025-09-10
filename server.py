@@ -10,17 +10,27 @@ app = Flask(__name__)
 CORS(app)
 
 def check_syntax(code):
-    """Kiểm tra cú pháp LuaU nhanh"""
+    """Kiểm tra cú pháp LuaU"""
     brackets = {'(': ')', '[': ']', '{': '}'}
     stack = []
     
     in_string = False
     string_char = None
     escaping = False
+    in_comment = False
     
-    for char in code:
+    for i, char in enumerate(code):
         if escaping:
             escaping = False
+            continue
+            
+        if in_comment:
+            if char == '\n':
+                in_comment = False
+            continue
+            
+        if not in_string and not in_comment and i < len(code) - 1 and char == '-' and code[i+1] == '-':
+            in_comment = True
             continue
             
         if in_string:
@@ -51,54 +61,81 @@ def check_syntax(code):
     return True, "Syntax OK"
 
 def obfuscate(code):
-    """Obfuscation mạnh nhưng ngắn gọn"""
-    # 1. Mã hóa strings với XOR
+    """Obfuscation đa lớp mã hóa"""
+    # 1. Mã hóa strings với nhiều phương pháp
     def encrypt_string(s):
-        key = random.randint(1, 255)
-        encrypted = ''.join(chr(ord(c) ^ key) for c in s)
-        b64 = base64.b64encode(encrypted.encode()).decode()
-        return f"(function(s,k)local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'local r=''for i=1,#s do local v=(b:find(s:sub(i,i))or 0)-1 if v>=0 then r=r..string.char(v)end end local d=''for j=1,#r do d=d..string.char(bit32.bxor(r:byte(j),k))end return d end)('{b64}',{key})"
+        method = random.choice(['xor', 'shift', 'reverse', 'base64'])
+        
+        if method == 'xor':
+            key = random.randint(1, 255)
+            encrypted = ''.join(chr(ord(c) ^ key) for c in s)
+            b64 = base64.b64encode(encrypted.encode()).decode()
+            return f"(function(s,k)local r=''for i=1,#s do r=r..string.char((string.byte(s,i)+k)%256)end return r end)((function(s)local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'local r=''for i=1,#s do local v=(b:find(s:sub(i,i))or 0)-1 if v>=0 then r=r..string.char(v)end end return r end)('{b64}'),{key})"
+        
+        elif method == 'shift':
+            shift = random.randint(1, 25)
+            encrypted = ''.join(chr((ord(c) + shift) % 256) for c in s)
+            b64 = base64.b64encode(encrypted.encode()).decode()
+            return f"(function(s,k)local r=''for i=1,#s do r=r..string.char((string.byte(s,i)-k)%256)end return r end)((function(s)local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'local r=''for i=1,#s do local v=(b:find(s:sub(i,i))or 0)-1 if v>=0 then r=r..string.char(v)end end return r end)('{b64}'),{shift})"
+        
+        elif method == 'reverse':
+            encrypted = s[::-1]
+            b64 = base64.b64encode(encrypted.encode()).decode()
+            return f"(function(s)return s:reverse()end)((function(s)local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'local r=''for i=1,#s do local v=(b:find(s:sub(i,i))or 0)-1 if v>=0 then r=r..string.char(v)end end return r end)('{b64}'))"
+        
+        else:  # base64
+            b64 = base64.b64encode(s.encode()).decode()
+            return f"(function(s)local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'local r=''for i=1,#s do local v=(b:find(s:sub(i,i))or 0)-1 if v>=0 then r=r..string.char(v)end end return r end)('{b64}')"
     
-    # Mã hóa tất cả strings
+    # Mã hóa strings
     code = re.sub(r'"(.*?)"', lambda m: encrypt_string(m.group(1)), code)
     code = re.sub(r"'(.*?)'", lambda m: encrypt_string(m.group(1)), code)
     
-    # 2. Đổi tên biến ngắn gọn
+    # 2. Đổi tên biến với nhiều pattern
     vars = set(re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', code))
     keywords = {'and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 
                'function', 'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 
                'repeat', 'return', 'then', 'true', 'until', 'while'}
     
-    for var in vars - keywords:
-        new_name = '_' + ''.join(random.choices('abcdef0123456789', k=8))
-        code = re.sub(r'\b' + re.escape(var) + r'\b', new_name, code)
-    
-    # 3. Thêm junk code ngắn
-    junk_lines = [
-        'if math.random()>999 then end',
-        'for _=1,1 do break end',
-        'do end',
-        '::a::goto a'
+    patterns = [
+        lambda: '_' + ''.join(random.choices('abcdef0123456789', k=8)),
+        lambda: '__' + ''.join(random.choices('ABCDEF0123456789', k=6)),
+        lambda: 'v' + str(random.randint(10000, 99999)),
+        lambda: ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=3)) + '_' + str(random.randint(100, 999))
     ]
     
-    lines = code.split('\n')
-    new_lines = []
-    for line in lines:
-        new_lines.append(line)
-        if random.random() < 0.2 and line.strip():
-            new_lines.append(random.choice(junk_lines))
+    for var in vars - keywords:
+        new_name = random.choice(patterns)()
+        code = re.sub(r'\b' + re.escape(var) + r'\b', new_name, code)
     
-    code = '\n'.join(new_lines)
+    # 3. Thêm anti-tamper code
+    anti_tamper = [
+        'if type(_G)=="table" and _G.debug then error("Debug mode detected") end',
+        'if math.random()>999 then while true do end end',
+        'local _=os.clock() if os.clock()-_>0.1 then error("Execution timeout") end',
+        'if getfenv and getfenv().debug then error("Debug environment") end'
+    ]
     
-    # 4. Mã hóa toàn bộ code thành long string
-    key = random.randint(1, 255)
-    encrypted = ''.join(chr(ord(c) ^ key) for c in code)
-    b64_code = base64.b64encode(encrypted.encode()).decode()
+    # 4. Mã hóa toàn bộ code với phương pháp ngẫu nhiên
+    method = random.choice(['xor', 'shift', 'base64'])
     
-    # 5. Tạo output dạng long string ngắn gọn
-    decoder = f'''local function d(s,k)local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'local r=''for i=1,#s do local v=(b:find(s:sub(i,i))or 0)-1 if v>=0 then r=r..string.char(v)end end local x=''for j=1,#r do x=x..string.char(bit32.bxor(r:byte(j),k))end return x end loadstring(d('{b64_code}',{key}))()'''
+    if method == 'xor':
+        key = random.randint(1, 255)
+        encrypted = ''.join(chr(ord(c) ^ key) for c in code)
+        b64_code = base64.b64encode(encrypted.encode()).decode()
+        decoder = f'''local function d(s,k)local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'local r=''for i=1,#s do local v=(b:find(s:sub(i,i))or 0)-1 if v>=0 then r=r..string.char(v)end end local x=''for j=1,#r do x=x..string.char(bit32.bxor(r:byte(j),k))end return x end {random.choice(anti_tamper)} loadstring(d('{b64_code}',{key}))()'''
     
-    return f"--[[Obfuscated]]{decoder}"
+    elif method == 'shift':
+        shift = random.randint(1, 50)
+        encrypted = ''.join(chr((ord(c) + shift) % 256) for c in code)
+        b64_code = base64.b64encode(encrypted.encode()).decode()
+        decoder = f'''local function d(s,k)local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'local r=''for i=1,#s do local v=(b:find(s:sub(i,i))or 0)-1 if v>=0 then r=r..string.char(v)end end local x=''for j=1,#r do x=x..string.char((r:byte(j)-k)%256)end return x end {random.choice(anti_tamper)} loadstring(d('{b64_code}',{shift}))()'''
+    
+    else:  # base64
+        b64_code = base64.b64encode(code.encode()).decode()
+        decoder = f'''local function d(s)local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'local r=''for i=1,#s do local v=(b:find(s:sub(i,i))or 0)-1 if v>=0 then r=r..string.char(v)end end return r end {random.choice(anti_tamper)} loadstring(d('{b64_code}'))()'''
+    
+    return f"--[[Secure Obfuscator]]{decoder}"
 
 @app.route('/api/obfuscate', methods=['POST'])
 def api_obfuscate():
@@ -109,23 +146,23 @@ def api_obfuscate():
         try:
             input_code = file.read().decode('utf-8')
         except:
-            return jsonify({'error': 'Lỗi đọc file'}), 400
+            return jsonify({'error': 'File read error'}), 400
 
     if not input_code.strip():
-        return jsonify({'error': 'Vui lòng nhập code'}), 400
+        return jsonify({'error': 'No code provided'}), 400
 
     is_valid, message = check_syntax(input_code)
     if not is_valid:
-        return jsonify({'error': f'Lỗi cú pháp: {message}'}), 400
+        return jsonify({'error': f'Syntax error: {message}'}), 400
 
     try:
         obfuscated = obfuscate(input_code)
         return jsonify({
             'output': obfuscated,
-            'status': 'Mã hóa thành công!'
+            'status': 'Obfuscation successful!'
         })
     except Exception as e:
-        return jsonify({'error': f'Lỗi: {str(e)}'}), 500
+        return jsonify({'error': f'Obfuscation error: {str(e)}'}), 500
 
 @app.route('/api/check_syntax', methods=['POST'])
 def api_check_syntax():
@@ -136,10 +173,10 @@ def api_check_syntax():
         try:
             input_code = file.read().decode('utf-8')
         except:
-            return jsonify({'error': 'Lỗi đọc file'}), 400
+            return jsonify({'error': 'File read error'}), 400
 
     if not input_code.strip():
-        return jsonify({'error': 'Vui lòng nhập code'}), 400
+        return jsonify({'error': 'No code provided'}), 400
 
     is_valid, message = check_syntax(input_code)
     return jsonify({'valid': is_valid, 'message': message})
