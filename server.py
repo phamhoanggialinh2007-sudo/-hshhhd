@@ -7,44 +7,47 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Allow CORS for frontend from different domain
+CORS(app)  # Cho phép CORS để frontend gọi API từ domain khác
 
 def check_syntax(code):
-    """Advanced basic syntax check for LuaU: balanced brackets, quotes, and simple keyword checks."""
+    """Kiểm tra cú pháp LuaU cơ bản: dấu ngoặc, dấu nháy, và cấu trúc cơ bản."""
     brackets = {'(': ')', '[': ']', '{': '}'}
     stack = []
     in_string = False
     quote_char = None
-    keywords = set(['end', 'then', 'do', 'until', 'else', 'elseif'])
-    keyword_stack = []
-    for char in code:
-        if in_string:
-            if char == quote_char:
-                in_string = False
+    lines = code.split('\n')
+    for line in lines:
+        line = line.strip()
+        if line.startswith('--'):  # Bỏ qua comment
             continue
-        if char in '"\'':
-            in_string = True
-            quote_char = char
-            continue
-        if char in brackets:
-            stack.append(char)
-        elif char in brackets.values():
-            if not stack or brackets[stack.pop()] != char:
-                return False
-        # Simple keyword balance check (e.g., if-then-end)
-        if char.isalpha() and code.find('if ') or code.find('for ') or code.find('while '):
-            keyword_stack.append(char)
-    if keyword_stack:
-        return False  # Unbalanced keywords
+        for char in line:
+            if in_string:
+                if char == quote_char:
+                    in_string = False
+                continue
+            if char in '"\'':
+                in_string = True
+                quote_char = char
+                continue
+            if char in brackets:
+                stack.append(char)
+            elif char in brackets.values():
+                if not stack or brackets[stack.pop()] != char:
+                    return False
+    # Kiểm tra các từ khóa cơ bản (if-then-end, for-do-end, etc.)
+    keyword_pairs = {'if': 'then', 'for': 'do', 'while': 'do', 'function': 'end'}
+    for keyword, ender in keyword_pairs.items():
+        if code.count(keyword) > code.count(ender):
+            return False
     return not stack and not in_string
 
 def obfuscate(code):
-    """Super strong LuaU obfuscation with multi-layer XOR, junk, control flow, anti-tamper, etc. Ensures valid syntax."""
-    # 7. Metadata Removal: Remove comments, minify whitespace
+    """Obfuscation LuaU cực mạnh: 3 lớp XOR, junk code thông minh, control flow rối, anti-tamper."""
+    # 6. Xóa metadata: comments, whitespace thừa
     code = re.sub(r'--.*', '', code)
     code = re.sub(r'\s+', ' ', code).strip()
 
-    # 1. Variable/Function Renaming: More random, hex-like
+    # 1. Đổi tên biến/hàm: Hex-based, ngẫu nhiên
     keywords = set(['and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function', 'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 'repeat', 'return', 'then', 'true', 'until', 'while'])
     identifiers = set(re.findall(r'\b[a-zA-Z_]\w*\b', code))
     vars_to_rename = identifiers - keywords
@@ -52,7 +55,7 @@ def obfuscate(code):
     for old, new in rename_map.items():
         code = re.sub(r'\b' + re.escape(old) + r'\b', new, code)
 
-    # 2. String Encoding: Multi-layer XOR (3 layers) + Base64, dynamic runtime decode
+    # 2. Mã hóa chuỗi: 3 lớp XOR + Base64, giải mã runtime thuần LuaU
     base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
     
     def base64_encode(data):
@@ -60,12 +63,11 @@ def obfuscate(code):
 
     def encode_string(match):
         str_content = match.group(1)
-        keys = [random.randint(1, 255) for _ in range(3)]  # 3 XOR keys
+        keys = [random.randint(1, 255) for _ in range(3)]  # 3 lớp XOR
         encoded = str_content
         for key in keys:
             encoded = ''.join(chr(ord(c) ^ key) for c in encoded)
         encoded_b64 = base64_encode(encoded)
-        # Multi-layer decoder in pure LuaU
         decoder = f'''(function(_b64, _k1, _k2, _k3)
             local _chars = "{base64_chars}"
             local _result = {{}}
@@ -111,59 +113,59 @@ def obfuscate(code):
     code = re.sub(r'"(.*?)"', encode_string, code)
     code = re.sub(r"'(.*?)'", encode_string, code)
 
-    # 3. Junk Code: More aggressive, with fake functions and loops
+    # 3. Junk Code: Thông minh hơn, thêm fake functions và traps
     junk_snippets = [
-        'local _0xjunk' + hex(random.randint(0, 0xFFF))[2:] + ' = math.random(1,1000); if _0xjunk' + hex(random.randint(0, 0xFFF))[2:] + ' > 9999 then end;',
-        'function _fake' + hex(random.randint(0, 0xFFF))[2:] + '() return nil end; _fake' + hex(random.randint(0, 0xFFF))[2:] + ' = nil;',
-        'repeat local _j = 1 until _j > 0;',
-        'if false then error("fake") end; while false do break end;',
+        f'local _0x{random.randint(1000,9999)} = math.random(1,1000); if _0x{random.randint(1000,9999)} > 9999 then error("fake") end;',
+        f'function _fake{random.randint(1000,9999)}() return math.random() * 0 end; _fake{random.randint(1000,9999)} = nil;',
+        'while false do break end; repeat local _j = 1 until _j > 0;',
+        f'local _trap{random.randint(1000,9999)} = math.random() if _trap{random.randint(1000,9999)} > 1 then error("trap") end;',
     ]
     parts = code.split(';')
     for i in range(len(parts) - 1, 0, -1):
-        if random.random() < 0.25:  # More junk
+        if random.random() < 0.3:  # Tăng junk code
             parts.insert(i, random.choice(junk_snippets))
     code = ';'.join(parts)
 
-    # 4. Control Flow Obfuscation: More complex math, fake switches, goto
-    code = re.sub(r'if\s+(\w+)\s*>\s*(\d+)\s*then', r'if math.floor(math.sin(\1 / \2) + 1) == 1 then', code)
-    code = re.sub(r'if\s+(\w+)\s*==\s*(\d+)\s*then', r'if ((\1 - \2)^2 == 0) then', code)
-    # Add fake goto and loops
-    fake_label = '_fake' + hex(random.randint(0, 0xFFF))[2:]
-    code = f'goto {fake_label}; ::{fake_label}:: ' + code + ' ; repeat until true'
+    # 4. Control Flow Obfuscation: Rối hơn với math và fake switch
+    code = re.sub(r'if\s+(\w+)\s*>\s*(\d+)\s*then', r'if math.floor(math.tan(\1 / \2) * 1000) % 2 == 1 then', code)
+    code = re.sub(r'if\s+(\w+)\s*==\s*(\d+)\s*then', r'if math.abs(\1 - \2) < 0.0001 then', code)
+    fake_label = f'_lbl{random.randint(1000,9999)}'
+    code = f'goto {fake_label}; if false then error("fake") end; ::{fake_label}:: ' + code + ' ; repeat until true'
 
-    # 5. Anti-Tamper/Anti-Debug: Stronger timing checks, env checks, traps
+    # 5. Anti-Tamper/Anti-Debug: Mạnh hơn nhưng an toàn Roblox
     anti_tamper = '''
-local _env = getfenv() local _start = tick() wait(0.001) if tick() - _start > 0.005 or _env.debug then warn("Tamper detected") end
-local _trap = math.random() if _trap > 1 then error("Trap triggered") end
-if type(_G) ~= "table" then warn("Env tamper") end
+local _env = getfenv() local _start = tick() wait(0.001)
+if tick() - _start > 0.005 then warn("Possible tamper detected") end
+if _env.debug or type(_G) ~= "table" then warn("Env modified") end
+local _trap = math.random() * 0 if _trap ~= 0 then error("Trap triggered") end
 '''
     code = anti_tamper + code
 
-    # 6. Runtime Assembly: Split into smaller dynamic parts, reassemble with XOR
-    split_parts = [code[i:i+100] for i in range(0, len(code), 100)]  # Smaller for stronger hiding
+    # 7. Runtime Assembly: Chia nhỏ thông minh, mã hóa mỗi phần
+    split_parts = [code[i:i+80] for i in range(0, len(code), 80)]  # Nhỏ hơn để tăng độ khó
     key_split = random.randint(1, 255)
     encoded_parts = [''.join(chr(ord(c) ^ key_split) for c in part) for part in split_parts]
-    reassemble = '..'.join(f'''(function(_s, _k) local _r='' for _i=1,#_s do _r=_r..string.char(bit32.bxor(_s:byte(_i),_k)) end return _r end)("{ep}", {key_split})''' for ep in encoded_parts)
+    reassemble = '..'.join(f'''(function(_s,_k) local _r='' for _i=1,#_s do _r=_r..string.char(bit32.bxor(_s:byte(_i),_k)) end return _r end)("{ep}", {key_split})''' for ep in encoded_parts)
     code = f'loadstring({reassemble})()'
 
-    # 8. Multi-layer Obfuscation: 2 outer XOR layers + dynamic key
-    keys_outer = [random.randint(1, 255) for _ in range(2)]
+    # 9. Multi-layer Obfuscation: 3 lớp XOR ngoài
+    keys_outer = [random.randint(1, 255) for _ in range(3)]
     encoded = code
     for key in keys_outer:
         encoded = ''.join(chr(ord(c) ^ key) for c in encoded)
     multi_decoder = f'''
-local function _multi_dec(_s, _k1, _k2)
+local function _multi_dec(_s, _k1, _k2, _k3)
     local _r = _s
-    for _l=1,2 do
+    for _l=1,3 do
         local _tmp = ''
         for _i=1,#_r do
-            _tmp = _tmp .. string.char(bit32.bxor(_r:byte(_i), (_l==1 and _k2 or _k1)))
+            _tmp = _tmp .. string.char(bit32.bxor(_r:byte(_i), (_l==1 and _k3 or _l==2 and _k2 or _k1)))
         end
         _r = _tmp
     end
     return _r
 end
-loadstring(_multi_dec("{encoded}", {keys_outer[0]}, {keys_outer[1]}))()
+loadstring(_multi_dec("{encoded}", {keys_outer[0]}, {keys_outer[1]}, {keys_outer[2]}))()
 '''
     return multi_decoder
 
@@ -175,17 +177,16 @@ def api_obfuscate():
         input_code = file.read().decode('utf-8')
 
     if not input_code.strip():
-        return jsonify({'error': 'No code provided!'}), 400
+        return jsonify({'error': 'Vui lòng nhập hoặc upload code LuaU!'}), 400
 
     if not check_syntax(input_code):
-        return jsonify({'error': 'Syntax error in input code!'}), 400
+        return jsonify({'error': 'Lỗi cú pháp trong code LuaU!'}), 400
 
     obfuscated = obfuscate(input_code)
-    # Post-obfuscation syntax check (basic)
-    if not check_syntax(obfuscated):
-        return jsonify({'error': 'Obfuscation failed syntax check!'}), 500
+    if not check_syntax(obfuscated):  # Kiểm tra cú pháp sau obfuscation
+        return jsonify({'error': 'Lỗi cú pháp sau khi mã hóa, vui lòng thử lại!'}), 500
 
-    return jsonify({'output': obfuscated, 'status': 'Obfuscation complete! Super strong encryption.'})
+    return jsonify({'output': obfuscated, 'status': 'Mã hóa thành công! Code LuaU siêu an toàn.'})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
