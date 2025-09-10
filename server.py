@@ -9,21 +9,27 @@ app = Flask(__name__)
 CORS(app)
 
 def check_syntax(code):
-    """Kiểm tra cú pháp LuaU đơn giản"""
-    # Kiểm tra các bracket cân bằng
+    """Kiểm tra cú pháp LuaU"""
     stack = []
     brackets = {'(': ')', '[': ']', '{': '}'}
     
     in_string = False
     string_char = None
     escaping = False
+    in_comment = False
     
-    i = 0
-    while i < len(code):
-        char = code[i]
-        
+    for i, char in enumerate(code):
         if escaping:
             escaping = False
+            continue
+            
+        if in_comment:
+            if char == '\n':
+                in_comment = False
+            continue
+            
+        if not in_string and i < len(code) - 1 and char == '-' and code[i+1] == '-':
+            in_comment = True
             i += 1
             continue
             
@@ -32,13 +38,11 @@ def check_syntax(code):
                 escaping = True
             elif char == string_char:
                 in_string = False
-            i += 1
             continue
             
         if char in ('"', "'"):
             in_string = True
             string_char = char
-            i += 1
             continue
             
         if char in brackets:
@@ -48,8 +52,6 @@ def check_syntax(code):
                 return False, "Unmatched closing bracket"
             if brackets[stack.pop()] != char:
                 return False, "Mismatched brackets"
-        
-        i += 1
                 
     if stack:
         return False, "Unclosed bracket"
@@ -59,70 +61,106 @@ def check_syntax(code):
     return True, "Syntax OK"
 
 def obfuscate(code):
-    """Obfuscation nhẹ nhàng nhưng hiệu quả"""
+    """Obfuscation đa phương pháp với junk code và flow control"""
     
-    # 1. Đổi tên biến đơn giản
+    # 1. Đổi tên biến
     variables = set(re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', code))
     keywords = {'and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 
                'function', 'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 
                'repeat', 'return', 'then', 'true', 'until', 'while'}
     
-    # Chỉ đổi tên các biến dài
-    long_vars = [v for v in variables - keywords if len(v) > 4]
     var_map = {}
+    for var in variables - keywords:
+        if len(var) > 3:  # Chỉ đổi tên biến dài
+            new_name = '_' + ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=6))
+            var_map[var] = new_name
+            code = code.replace(var, new_name)
     
-    for var in long_vars:
-        new_name = 'v' + str(random.randint(1000, 9999))
-        var_map[var] = new_name
-        code = code.replace(var, new_name)
-    
-    # 2. Mã hóa string đơn giản (chỉ strings dài)
-    def simple_encrypt(s):
-        if len(s) < 8:  # Chỉ mã hóa string dài
-            return f'"{s}"'
+    # 2. Mã hóa strings với nhiều phương pháp
+    def encrypt_string(s):
+        method = random.choice(['base64', 'ascii', 'reverse', 'xor'])
         
-        key = random.randint(1, 255)
-        # Mã hóa XOR đơn giản
-        encrypted = ''.join(chr(ord(c) ^ key) for c in s)
-        b64 = base64.b64encode(encrypted.encode()).decode()
+        if method == 'base64':
+            b64 = base64.b64encode(s.encode()).decode()
+            return f"(function() local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/' local r='' for i=1,#'{b64}' do local v=b:find('{b64}':sub(i,i))-1 if v>=0 then r=r..string.char(v) end end return r end)()"
         
-        return f'((function(s,k)return loadstring(string.char(({key})))(s,k)end)(\'{b64}\',{key}))'
+        elif method == 'ascii':
+            ascii_codes = [str(ord(c)) for c in s]
+            return f"(function() local r='' for _,v in ipairs({{{','.join(ascii_codes)}}}) do r=r..string.char(v) end return r end)()"
+        
+        elif method == 'reverse':
+            return f"'{s[::-1]}':reverse()"
+        
+        else:  # xor
+            key = random.randint(1, 255)
+            encoded = ''.join(chr(ord(c) ^ key) for c in s)
+            return f"(function(s,k) local r='' for i=1,#s do r=r..string.char(s:byte(i)~k) end return r end)('{encoded}',{key})"
     
-    # Tìm và mã hóa các string
-    strings = re.findall(r'"(.*?)"', code)
+    # Mã hóa các strings dài
+    strings = re.findall(r'"(.*?)"', code) + re.findall(r"'(.*?)'", code)
     for s in strings:
-        if len(s) >= 8:
-            encrypted = simple_encrypt(s)
-            code = code.replace(f'"{s}"', encrypted, 1)
+        if len(s) > 5 and not s.startswith('http'):
+            encrypted = encrypt_string(s)
+            code = code.replace(f'"{s}"', encrypted).replace(f"'{s}'", encrypted)
     
-    # 3. Thêm một ít junk code
-    junk_codes = [
-        'if nil then end',
-        'local _=1',
-        'do end'
+    # 3. Thêm junk code và flow obfuscation
+    junk_functions = [
+        'local function _junk() return math.random(100) end',
+        'local _ = function() return nil end',
+        'if false then while true do end end',
+        'repeat until true',
+        'for i=1,0 do break end',
+        '::__label__:: goto __label__'
     ]
     
+    flow_patterns = [
+        'if math.random() > 0.5 then else end',
+        'local _cond = true; if _cond then else end',
+        'while false do break end'
+    ]
+    
+    # Thêm junk functions
+    code = random.choice(junk_functions) + '\n' + code
+    
+    # Thêm flow obfuscation
     lines = code.split('\n')
-    if len(lines) > 20:
-        # Thêm junk code ở một vài vị trí
-        insert_positions = random.sample(range(5, len(lines)-5), min(2, len(lines)//20))
-        for pos in sorted(insert_positions, reverse=True):
-            lines.insert(pos, random.choice(junk_codes))
+    for i in range(len(lines)):
+        if random.random() < 0.1 and 'function' not in lines[i] and 'end' not in lines[i]:
+            lines[i] = random.choice(flow_patterns) + '\n' + lines[i]
     
     code = '\n'.join(lines)
     
-    # 4. Mã hóa toàn bộ code đơn giản
-    # Chỉ mã hóa nếu code đủ dài
-    if len(code) > 100:
-        key = random.randint(1, 255)
-        encrypted = ''.join(chr(ord(c) ^ key) for c in code)
-        b64_code = base64.b64encode(encrypted.encode()).decode()
-        
-        # Decoder đơn giản
-        decoder = f'''local k={key}local s=[[{b64_code}]]local r=""for i=1,#s do r=r..string.char(string.byte(s,i)~k)end loadstring(r)()'''
-        return decoder
+    # 4. Mã hóa toàn bộ code với Base64
+    b64_code = base64.b64encode(code.encode()).decode()
     
-    return code
+    # 5. Tạo decoder với junk code
+    decoder = f'''--[[ Obfuscated Code ]]
+local function _decrypt()
+    local _junk = function() return math.random(100) end
+    _junk()
+    
+    local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    local s = '{b64_code}'
+    local r = ''
+    
+    for i = 1, #s do
+        local v = b:find(s:sub(i, i)) - 1
+        if v >= 0 then
+            r = r .. string.char(v)
+        end
+    end
+    
+    if math.random() > 2 then
+        while true do end
+    end
+    
+    return r
+end
+
+local code = _decrypt()
+loadstring(code)()'''
+    
+    return decoder
 
 @app.route('/api/obfuscate', methods=['POST'])
 def api_obfuscate():
@@ -172,10 +210,11 @@ def api_check_syntax():
 def index():
     return '''
     <html>
+        <head><title>Lua Obfuscator</title></head>
         <body>
             <h2>Lua Code Obfuscator</h2>
             <form action="/api/obfuscate" method="post">
-                <textarea name="code" rows="10" cols="50" placeholder="Paste Lua code here"></textarea>
+                <textarea name="code" rows="15" cols="80" placeholder="Paste your Lua code here"></textarea>
                 <br>
                 <input type="submit" value="Obfuscate">
             </form>
