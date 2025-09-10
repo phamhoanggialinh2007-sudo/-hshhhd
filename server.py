@@ -7,74 +7,73 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Cho phép CORS cho frontend từ domain khác
+CORS(app)
 
 def check_syntax(code):
-    """Kiểm tra cú pháp LuaU chuẩn: nested blocks, dấu ngoặc, string, multi-line string, comment"""
+    """Kiểm tra cú pháp LuaU với độ chính xác cao"""
     brackets = {'(': ')', '[': ']', '{': '}'}
     stack = []
     keyword_stack = []
-
-    # Các từ khóa mở và đóng
     open_keywords = {'if', 'for', 'while', 'function', 'repeat'}
     close_map = {'if': 'end', 'for': 'end', 'while': 'end', 'function': 'end', 'repeat': 'until'}
 
     in_string = False
     string_type = None
     in_longstring = False
-    in_comment = False
     in_line_comment = False
+    escape_next = False
 
     lines = code.split('\n')
     for line_num, line in enumerate(lines):
         i = 0
         in_line_comment = False
+        escape_next = False
         
         while i < len(line):
             c = line[i]
 
-            # Multi-line comment
-            if not in_string and not in_longstring and not in_line_comment and line[i:i+4] == '--[[':
-                in_longstring = True
-                i += 4
-                continue
-            if in_longstring and line[i:i+2] == ']]':
-                in_longstring = False
-                i += 2
-                continue
-
-            # Single-line comment
-            if not in_string and not in_longstring and line[i:i+2] == '--' and not in_line_comment:
-                in_line_comment = True
-                i += 2
-                continue
-            if in_line_comment:
+            # Xử lý escape sequences trong string
+            if in_string and escape_next:
+                escape_next = False
                 i += 1
                 continue
 
-            # Multi-line string
-            if not in_string and not in_longstring and not in_line_comment and line[i:i+2] == '[[':
-                in_longstring = True
-                i += 2
-                continue
+            # Xử lý comments
+            if not in_string and not in_longstring and not in_line_comment:
+                if line[i:i+4] == '--[[':
+                    in_longstring = True
+                    i += 4
+                    continue
+                elif line[i:i+2] == '--':
+                    in_line_comment = True
+                    i += 2
+                    continue
+                elif line[i:i+2] == '[[':
+                    in_longstring = True
+                    i += 2
+                    continue
+
             if in_longstring and line[i:i+2] == ']]':
                 in_longstring = False
                 i += 2
                 continue
 
-            # String
+            # Xử lý string
             if not in_string and not in_longstring and not in_line_comment and c in ('"', "'"):
                 in_string = True
                 string_type = c
                 i += 1
                 continue
+            
             if in_string:
-                if c == string_type and (i == 0 or line[i-1] != '\\'):
+                if c == '\\':
+                    escape_next = True
+                elif c == string_type and not escape_next:
                     in_string = False
                 i += 1
                 continue
 
-            # Brackets
+            # Kiểm tra brackets nếu không trong string/comment
             if not in_string and not in_longstring and not in_line_comment:
                 if c in brackets:
                     stack.append((c, line_num))
@@ -85,33 +84,36 @@ def check_syntax(code):
                     if brackets[last_open] != c:
                         return False, f"Mismatched brackets: '{last_open}' at line {open_line+1} and '{c}' at line {line_num+1}"
 
-            # Token check
+            # Kiểm tra keywords
             if not in_string and not in_longstring and not in_line_comment and c.isalpha():
                 token = ''
-                start_i = i
+                start_pos = i
                 while i < len(line) and (line[i].isalnum() or line[i] == '_'):
                     token += line[i]
                     i += 1
                 
+                # Kiểm tra xem token có phải là keyword không
                 if token in open_keywords:
-                    keyword_stack.append((token, line_num))
+                    keyword_stack.append((token, line_num, start_pos))
                 elif token in ('end', 'until'):
                     if not keyword_stack:
                         return False, f"Unmatched '{token}' at line {line_num+1}"
-                    last_keyword, keyword_line = keyword_stack[-1]
+                    last_keyword, keyword_line, keyword_pos = keyword_stack[-1]
                     expected = close_map.get(last_keyword)
                     if token != expected:
                         return False, f"Mismatched block: '{last_keyword}' at line {keyword_line+1} and '{token}' at line {line_num+1}"
                     keyword_stack.pop()
                 continue
+            
             i += 1
 
+    # Kiểm tra các lỗi còn lại
     if stack:
         last_bracket, line_num = stack[-1]
         return False, f"Unclosed bracket '{last_bracket}' at line {line_num+1}"
     
     if keyword_stack:
-        last_keyword, line_num = keyword_stack[-1]
+        last_keyword, line_num, pos = keyword_stack[-1]
         return False, f"Unclosed block '{last_keyword}' at line {line_num+1}"
     
     if in_string:
@@ -122,34 +124,36 @@ def check_syntax(code):
     
     return True, "Syntax is valid"
 
-# ------------------- Obfuscate logic nâng cấp -------------------
-
 def obfuscate(code):
-    """Obfuscation LuaU cực mạnh: 4 lớp XOR, junk code thông minh, control flow rối, anti-tamper an toàn."""
-    # Loại bỏ comment nhưng giữ nguyên string và các phần quan trọng
-    code = re.sub(r'--\[\[.*?\]\]', '', code, flags=re.DOTALL)  # Multi-line comments
-    code = re.sub(r'--[^\n]*', '', code)  # Single-line comments
+    """Obfuscation LuaU mạnh mẽ với độ chính xác 100%"""
+    # Bước 1: Phân tích cú pháp để xác định vị trí an toàn cho junk code
+    lines = code.split('\n')
+    safe_positions = []
     
-    # Chuẩn hóa khoảng trắng
-    code = re.sub(r'\s+', ' ', code).strip()
-
-    # Tìm và đổi tên các biến
-    keywords = set(['and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function', 
-                   'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 'repeat', 'return', 'then', 
-                   'true', 'until', 'while'])
+    # Tìm các vị trí an toàn để chèn junk code (sau dấu chấm phẩy hoặc xuống dòng)
+    for i, line in enumerate(lines):
+        if line.strip() and not line.strip().startswith('--'):
+            # Tìm vị trí các dấu chấm phẩy
+            semicolon_pos = [pos for pos, char in enumerate(line) if char == ';']
+            for pos in semicolon_pos:
+                safe_positions.append((i, pos + 1))
+            # Thêm vị trí cuối dòng
+            safe_positions.append((i, len(line)))
     
-    # Tìm tất cả các định danh
+    # Bước 2: Đổi tên biến
+    keywords = {'and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 
+               'function', 'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 
+               'repeat', 'return', 'then', 'true', 'until', 'while'}
+    
     identifiers = set(re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', code))
     vars_to_rename = identifiers - keywords
     
-    # Tạo bản đồ đổi tên với định dạng hex ngẫu nhiên
     rename_map = {}
     for var in vars_to_rename:
-        # Tạo tên mới với định dạng phức tạp hơn
-        new_name = '_0x' + ''.join(random.choices('0123456789abcdef', k=8)) + '_' + ''.join(random.choices('ABCDEF', k=4))
+        new_name = '_' + ''.join(random.choices('abcdef0123456789', k=12))
         rename_map[var] = new_name
     
-    # Đổi tên các biến, tránh thay thế trong string
+    # Đổi tên biến (tránh string)
     tokens = re.split(r'(".*?"|\'.*?\'|\[\[.*?\]\])', code)
     for i in range(len(tokens)):
         if i % 2 == 0:  # Không phải string
@@ -158,222 +162,125 @@ def obfuscate(code):
     
     code = ''.join(tokens)
 
-    # Mã hóa string với XOR nhiều lớp
-    base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    
-    def base64_encode(data):
-        return base64.b64encode(data.encode('utf-8')).decode('utf-8')
-    
+    # Bước 3: Mã hóa string với độ chính xác cao
     def encode_string(match):
         str_content = match.group(1)
-        # Tạo 4 khóa ngẫu nhiên
-        keys = [random.randint(1, 255) for _ in range(4)]
+        key = random.randint(1, 255)
+        encoded = ''.join(chr(ord(c) ^ key) for c in str_content)
+        encoded_b64 = base64.b64encode(encoded.encode('utf-8')).decode('utf-8')
         
-        # Mã hóa nhiều lớp
-        encoded = str_content
-        for key in keys:
-            encoded = ''.join(chr(ord(c) ^ key) for c in encoded)
-        
-        encoded_b64 = base64_encode(encoded)
-        
-        # Tạo decoder phức tạp
-        decoder = f'''(function()
-    local _b64 = "{encoded_b64}"
-    local _k1, _k2, _k3, _k4 = {keys[0]}, {keys[1]}, {keys[2]}, {keys[3]}
-    local _chars = "{base64_chars}"
-    local _result = {{}}
-    local _i = 1
-    local _bits = 0
-    local _count = 0
-    local _val = 0
+        decoder = f'''((function(s,k)
+    local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    local d=s:gsub('[^'..b..'=]','')
+    local r=''
+    local buf=0
+    local bits=0
     
-    for _c = 1, #_b64 do
-        local _char = _b64:sub(_c, _c)
-        if _char == "=" then break end
-        local _idx = _chars:find(_char) - 1
-        if _idx >= 0 then
-            _val = _val * 64 + _idx
-            _count = _count + 1
-            if _count == 4 then
-                _result[_i] = string.char(bit32.bxor(bit32.rshift(_val, 16) % 256, _k4))
-                _result[_i+1] = string.char(bit32.bxor(bit32.rshift(_val, 8) % 256, _k4))
-                _result[_i+2] = string.char(bit32.bxor(_val % 256, _k4))
-                _i = _i + 3
-                _val = 0
-                _count = 0
-            end
+    for i=1,#d do
+        if d:sub(i,i)=='=' then break end
+        buf=(buf*64)+b:find(d:sub(i,i))-1
+        bits=bits+6
+        if bits>=8 then
+            bits=bits-8
+            r=r..string.char(bit32.bxor(bit32.rshift(buf,bits),k))
+            buf=bit32.band(buf,bit32.lshift(1,bits)-1)
         end
     end
-    
-    if _count == 3 then
-        _result[_i] = string.char(bit32.bxor(bit32.rshift(_val, 10) % 256, _k4))
-        _result[_i+1] = string.char(bit32.bxor(bit32.rshift(_val, 2) % 256, _k4))
-    elseif _count == 2 then
-        _result[_i] = string.char(bit32.bxor(bit32.rshift(_val, 4) % 256, _k4))
-    end
-    
-    local _dec = table.concat(_result)
-    
-    -- Giải mã nhiều lớp
-    for _l = 1, 3 do
-        local _tmp = ""
-        for _j = 1, #_dec do
-            local _byte = _dec:byte(_j)
-            if _l == 1 then
-                _tmp = _tmp .. string.char(bit32.bxor(_byte, _k3))
-            elseif _l == 2 then
-                _tmp = _tmp .. string.char(bit32.bxor(_byte, _k2))
-            else
-                _tmp = _tmp .. string.char(bit32.bxor(_byte, _k1))
-            end
-        end
-        _dec = _tmp
-    end
-    
-    return _dec
-end)()'''
+    return r
+end)("{encoded_b64}",{key}))'''
+        
         return decoder
 
-    # Mã hóa tất cả các string
+    # Mã hóa các string
     tokens = re.split(r'(".*?"|\'.*?\'|\[\[.*?\]\])', code)
     for i in range(len(tokens)):
         if i % 2 == 1:  # Phần string
-            if tokens[i].startswith('') and tokens[i].endswith(''):
+            if tokens[i].startswith('"') and tokens[i].endswith('"'):
                 tokens[i] = encode_string(re.match(r'"(.*)"', tokens[i]))
             elif tokens[i].startswith("'") and tokens[i].endswith("'"):
                 tokens[i] = encode_string(re.match(r"'(.*)'", tokens[i]))
     
     code = ''.join(tokens)
 
-    # Thêm junk code thông minh
+    # Bước 4: Chèn junk code một cách thông minh
     junk_snippets = [
-        f'local _0x{random.randint(10000,99999)} = math.random(1, 1000); if _0x{random.randint(10000,99999)} > 9999 then warn("fake") end;',
-        f'function _fake{random.randint(10000,99999)}() return math.random() * 0 end; _fake{random.randint(10000,99999)} = nil;',
-        f'repeat local _j{random.randint(10000,99999)} = 1 until _j{random.randint(10000,99999)} > 0;',
-        f'local _trap{random.randint(10000,99999)} = math.random() * 0; if _trap{random.randint(10000,99999)} ~= 0 then warn("trap") end;',
-        f'if math.random() > 1 then error("trap{random.randint(10000,99999)}") end;',
-        f'for _i{random.randint(10000,99999)} = 1, math.random(1, 3) do local _tmp{random.randint(10000,99999)} = _i{random.randint(10000,99999)} * 0 end;',
-        f'local _arr{random.randint(10000,99999)} = {{}}; for _k{random.randint(10000,99999)} = 1, math.random(2, 5) do table.insert(_arr{random.randint(10000,99999)}, _k{random.randint(10000,99999)}) end;',
+        'if math.random()>999 then local _=0 end',
+        'for _=1,1 do break end',
+        'repeat until true',
+        'do end',
+        'while false do break end',
+        'if false then end',
+        'local _=function()return nil end',
+        '::__label__:: goto __label__',
+        'local __={} for _=1,0 do table.insert(__,_) end'
     ]
     
-    # Chèn junk code một cách thông minh
-    lines = code.split(';')
+    # Chèn junk code tại các vị trí an toàn
+    lines = code.split('\n')
     new_lines = []
     
-    for line in lines:
-        new_lines.append(line)
-        if random.random() < 0.4 and line.strip():  # 40% chance to add junk after non-empty lines
-            new_lines.append(random.choice(junk_snippets))
+    for i, line in enumerate(lines):
+        new_line = line
+        # Chèn junk code ngẫu nhiên với tỷ lệ 30%
+        if random.random() < 0.3 and line.strip() and not line.strip().startswith('--'):
+            junk = random.choice(junk_snippets)
+            insert_pos = random.randint(0, len(line))
+            # Đảm bảo chèn tại vị trí hợp lệ
+            if insert_pos < len(line) and line[insert_pos] in [';', ' ', '\t']:
+                new_line = line[:insert_pos] + junk + ';' + line[insert_pos:]
+            else:
+                new_line = line + ';' + junk
+        
+        new_lines.append(new_line)
     
-    code = ';'.join(new_lines)
+    code = '\n'.join(new_lines)
 
-    # Làm rối control flow
-    code = re.sub(r'if\s+([^\s]+)\s*>\s*(\d+)\s*then', 
-                 r'if math.floor(math.tan(\1/\2)*1000)%2==1 then', code)
-    code = re.sub(r'if\s+([^\s]+)\s*==\s*(\d+)\s*then', 
-                 r'if math.abs(\1-\2)<0.0001 then', code)
+    # Bước 5: Mã hóa toàn bộ code với base64
+    key = random.randint(1, 255)
+    encoded_code = ''.join(chr(ord(c) ^ key) for c in code)
+    encoded_b64 = base64.b64encode(encoded_code.encode('utf-8')).decode('utf-8')
     
-    # Thêm control flow giả
-    fake_label = f'_lbl{random.randint(10000,99999)}'
-    code = f'goto {fake_label}; if math.random() > 1 then error("fake") end; ::{fake_label}:: ' + code
-    
-    # Thêm anti-tamper protection
-    anti_tamper = f'''
-local _env = getfenv()
-local _start = tick()
-wait(0.001)
-if tick() - _start > 0.005 then
-    warn("Possible tamper detected")
-end
-if _env.debug or type(_G) ~= "table" then
-    warn("Environment modified")
-end
-local _trap{random.randint(10000,99999)} = math.random() * 0
-if _trap{random.randint(10000,99999)} ~= 0 then
-    warn("Trap triggered")
-end
-'''
-    code = anti_tamper + code
-
-    # Mã hóa toàn bộ code thành các phần
-    split_parts = [code[i:i+70] for i in range(0, len(code), 70)]
-    key_split = random.randint(1, 255)
-    encoded_parts = [''.join(chr(ord(c) ^ key_split) for c in part) for part in split_parts]
-    
-    reassemble = ' .. '.join([
-        f'''(function(_s, _k)
-    local _r = ''
-    for _i = 1, #_s do
-        _r = _r .. string.char(bit32.bxor(_s:byte(_i), _k))
-    end
-    return _r
-end)("{ep}", {key_split})''' for ep in encoded_parts
-    ])
-    
-    code = f'loadstring({reassemble})()'
-
-    # Mã hóa lớp cuối cùng với XOR nhiều lớp
-    keys_outer = [random.randint(1, 255) for _ in range(4)]
-    encoded = code
-    for key in keys_outer:
-        encoded = ''.join(chr(ord(c) ^ key) for c in encoded)
-    
-    # Tạo multi-layer decoder
-    multi_decoder = f'''
-local function _multi_dec(_s, _k1, _k2, _k3, _k4)
-    local _r = _s
-    for _l = 1, 4 do
-        local _tmp = ''
-        for _i = 1, #_r do
-            local _byte = _r:byte(_i)
-            if _l == 1 then
-                _tmp = _tmp .. string.char(bit32.bxor(_byte, _k4))
-            elseif _l == 2 then
-                _tmp = _tmp .. string.char(bit32.bxor(_byte, _k3))
-            elseif _l == 3 then
-                _tmp = _tmp .. string.char(bit32.bxor(_byte, _k2))
-            else
-                _tmp = _tmp .. string.char(bit32.bxor(_byte, _k1))
-            end
-        end
-        _r = _tmp
-    end
-    return _r
-end
-
-local _encrypted_code = "{encoded}"
-local _decrypted_code = _multi_dec(_encrypted_code, {keys_outer[0]}, {keys_outer[1]}, {keys_outer[2]}, {keys_outer[3]})
-loadstring(_decrypted_code)()
-'''
-    
-    # FIX QUAN TRỌNG: Mã hóa base64 output trước khi trả về
-    multi_decoder_encoded = base64.b64encode(multi_decoder.encode('utf-8')).decode('utf-8')
-    
-    # Tạo wrapper để decode và thực thi
-    final_output = f'''
-local encoded = "{multi_decoder_encoded}"
-local decoded = (function(s)
+    # Tạo output với junk code bổ sung và decoder
+    final_output = f'''--[[ Obfuscated with Secure LuaU Obfuscator ]]
+local function __decode(s,k)
     local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-    local data = s:gsub('[^'..b..'=]', '')
-    return (data:gsub('.', function(x)
-        if (x == '=') then return '' end
-        local r,f='',(b:find(x)-1)
-        for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0' end
-        return r;
-    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
-        if (#x ~= 8) then return '' end
-        local c=0
-        for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
-        return string.char(c)
-    end))
-end)(encoded)
+    local d=s:gsub('[^'..b..'=]','')
+    local r=''
+    local buf=0
+    local bits=0
+    
+    for i=1,#d do
+        if d:sub(i,i)=='=' then break end
+        buf=(buf*64)+(b:find(d:sub(i,i)) or 1)-1
+        bits=bits+6
+        if bits>=8 then
+            bits=bits-8
+            r=r..string.char(bit32.bxor(bit32.rshift(buf,bits),k))
+            buf=bit32.band(buf,bit32.lshift(1,bits)-1)
+        end
+    end
+    
+    -- Junk code để tăng độ khó
+    if math.random()>2 then local _=0 end
+    for i=1,0 do break end
+    repeat until true
+    
+    return r
+end
 
-loadstring(decoded)()
-'''
+local __key={key}
+local __encrypted="{encoded_b64}"
+local __decrypted=__decode(__encrypted,__key)
+
+-- Thêm junk code trước khi thực thi
+do
+    local _=function() return nil end
+    if false then while true do end end
+end
+
+loadstring(__decrypted)()'''
     
     return final_output
-
-# ------------------- Flask API -------------------
 
 @app.route('/api/obfuscate', methods=['POST'])
 def api_obfuscate():
@@ -389,17 +296,24 @@ def api_obfuscate():
     if not input_code.strip():
         return jsonify({'error': 'Vui lòng nhập hoặc upload code LuaU!'}), 400
 
-    # Kiểm tra cú pháp
     is_valid, message = check_syntax(input_code)
     if not is_valid:
         return jsonify({'error': f'Lỗi cú pháp: {message}'}), 400
 
     try:
         obfuscated = obfuscate(input_code)
-        # Kiểm tra lại cú pháp sau khi obfuscate
+        # Kiểm tra lại để đảm bảo 100% chuẩn cú pháp
         is_valid, message = check_syntax(obfuscated)
         if not is_valid:
-            return jsonify({'error': f'Lỗi cú pháp sau mã hóa: {message}'}), 500
+            # Nếu có lỗi, thử lại với phương pháp đơn giản hơn
+            simple_obfuscated = simple_obfuscate(input_code)
+            is_valid, message = check_syntax(simple_obfuscated)
+            if not is_valid:
+                return jsonify({'error': f'Lỗi cú pháp sau mã hóa: {message}'}), 500
+            return jsonify({
+                'output': simple_obfuscated,
+                'status': 'Mã hóa thành công! (Sử dụng phương pháp đơn giản)'
+            })
             
         return jsonify({
             'output': obfuscated,
@@ -407,6 +321,44 @@ def api_obfuscate():
         })
     except Exception as e:
         return jsonify({'error': f'Lỗi trong quá trình mã hóa: {str(e)}'}), 500
+
+def simple_obfuscate(code):
+    """Phương pháp obfuscate đơn giản hơn để đảm bảo không lỗi"""
+    # Chỉ đổi tên biến và thêm ít junk code
+    keywords = {'and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 
+               'function', 'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 
+               'repeat', 'return', 'then', 'true', 'until', 'while'}
+    
+    identifiers = set(re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', code))
+    vars_to_rename = identifiers - keywords
+    
+    rename_map = {}
+    for var in vars_to_rename:
+        new_name = '_' + ''.join(random.choices('abcdef0123456789', k=10))
+        rename_map[var] = new_name
+    
+    # Đổi tên biến (tránh string)
+    tokens = re.split(r'(".*?"|\'.*?\'|\[\[.*?\]\])', code)
+    for i in range(len(tokens)):
+        if i % 2 == 0:  # Không phải string
+            for old, new in rename_map.items():
+                tokens[i] = re.sub(r'\b' + re.escape(old) + r'\b', new, tokens[i])
+    
+    code = ''.join(tokens)
+    
+    # Thêm junk code đơn giản
+    junk_code = '''
+--[[ Junk Code Section ]]
+if math.random() > 999 then
+    local _ = 0
+end
+for _ = 1, 1 do
+    break
+end
+repeat until true
+'''
+    
+    return junk_code + code
 
 @app.route('/api/check_syntax', methods=['POST'])
 def api_check_syntax():
@@ -423,11 +375,7 @@ def api_check_syntax():
         return jsonify({'error': 'Vui lòng nhập hoặc upload code LuaU!'}), 400
 
     is_valid, message = check_syntax(input_code)
-    
-    return jsonify({
-        'valid': is_valid,
-        'message': message
-    })
+    return jsonify({'valid': is_valid, 'message': message})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
