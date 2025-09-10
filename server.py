@@ -238,7 +238,7 @@ end)()'''
     tokens = re.split(r'(".*?"|\'.*?\'|\[\[.*?\]\])', code)
     for i in range(len(tokens)):
         if i % 2 == 1:  # Phần string
-            if tokens[i].startswith('"') and tokens[i].endswith('"'):
+            if tokens[i].startswith('') and tokens[i].endswith(''):
                 tokens[i] = encode_string(re.match(r'"(.*)"', tokens[i]))
             elif tokens[i].startswith("'") and tokens[i].endswith("'"):
                 tokens[i] = encode_string(re.match(r"'(.*)'", tokens[i]))
@@ -346,7 +346,32 @@ local _decrypted_code = _multi_dec(_encrypted_code, {keys_outer[0]}, {keys_outer
 loadstring(_decrypted_code)()
 '''
     
-    return multi_decoder
+    # FIX QUAN TRỌNG: Mã hóa base64 output trước khi trả về
+    multi_decoder_encoded = base64.b64encode(multi_decoder.encode('utf-8')).decode('utf-8')
+    
+    # Tạo wrapper để decode và thực thi
+    final_output = f'''
+local encoded = "{multi_decoder_encoded}"
+local decoded = (function(s)
+    local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    local data = s:gsub('[^'..b..'=]', '')
+    return (data:gsub('.', function(x)
+        if (x == '=') then return '' end
+        local r,f='',(b:find(x)-1)
+        for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0' end
+        return r;
+    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
+        if (#x ~= 8) then return '' end
+        local c=0
+        for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
+        return string.char(c)
+    end))
+end)(encoded)
+
+loadstring(decoded)()
+'''
+    
+    return final_output
 
 # ------------------- Flask API -------------------
 
