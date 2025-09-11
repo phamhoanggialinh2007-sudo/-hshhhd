@@ -3,6 +3,8 @@ import string
 import re
 from flask import Flask, request, jsonify
 import math
+from flask_cors import CORS
+CORS(app)
 
 app = Flask(__name__)
 
