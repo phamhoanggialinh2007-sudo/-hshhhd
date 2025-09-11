@@ -2,12 +2,12 @@ import random
 import string
 import re
 from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
 from io import BytesIO
 import math
-from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # Cho phép truy cập từ các domain khác
 
 def generate_random_name(length=2):
     """Tạo tên ngẫu nhiên với độ dài chỉ định - tối ưu cho Luau"""
@@ -17,7 +17,7 @@ def generate_random_name(length=2):
 
 def multi_layer_xor(data, layers=2):
     """Mã hóa nhiều lớp XOR với các key ngẫu nhiên - tối ưu hóa"""
-    encrypted_data = data.encode()
+    encrypted_data = data.encode('utf-8')
     keys = []
     
     for _ in range(layers):
@@ -41,11 +41,14 @@ def generate_luau_junk_statements(count=5):
         "do local {1}={2} end",
         "local {1} = function() return {2} end",
         "if not {0} then else end",
-        "::{1}:: goto {1}",
+        "::{1}::",
+        "goto {1}",
         "local {1} = {{{2}}}",
         "local {1} = setmetatable({{}}, {{}})",
         "local {1} = typeof({2})",
-        "task.spawn(function() {2} end)"
+        "task.spawn(function() {2} end)",
+        "local {1} = Instance.new('Part')",
+        "local {1} = game:GetService('{2}')"
     ]
     
     junk_statements = []
@@ -66,7 +69,11 @@ def generate_luau_junk_statements(count=5):
             else:
                 values.append("{}")
         
-        junk_statements.append(template.format(*values))
+        try:
+            junk_statements.append(template.format(*values))
+        except:
+            # Nếu có lỗi định dạng, bỏ qua câu lệnh này
+            continue
     
     return junk_statements
 
@@ -76,7 +83,7 @@ def obfuscate_luau_names(code):
     reserved_words = {
         'and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function', 
         'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 'repeat', 'return', 
-        'then', 'true', 'until', 'while', 'continue', 'typeof', 'task'
+        'then', 'true', 'until', 'while', 'continue', 'typeof', 'task', 'self'
     }
     
     # Tìm tất cả các định danh
@@ -84,7 +91,7 @@ def obfuscate_luau_names(code):
     identifiers = re.findall(pattern, code)
     
     # Lọc ra các từ khóa và chỉ lấy các định danh có thể đổi tên
-    identifiers = [id for id in identifiers if id not in reserved_words and not id.isdigit()]
+    identifiers = [id for id in set(identifiers) if id not in reserved_words and not id.isdigit() and len(id) > 1]
     
     # Tạo ánh xạ tên mới
     mapping = {}
@@ -123,7 +130,7 @@ def flatten_luau_code(code):
 def insert_luau_junk_code(code, junk_count=5):
     """Chèn mã rác vào các vị trí ngẫu nhiên trong code Luau"""
     # Tách code thành các câu lệnh
-    statements = re.split(r'(;|\bend\b|\belse\b|\belseif\b|\bthen\b)', code)
+    statements = re.split(r'(;|end|else|elseif|then|do|function)', code)
     
     if len(statements) <= 1:
         return code
@@ -159,7 +166,7 @@ def generate_luau_decryption_code(encrypted_data, keys):
     # Giải mã từng lớp
     for i in range(len(keys)-1, -1, -1):
         key_len = len(keys[i])
-        decryption_code.append(f'for i=1,#d do local b=d:byte(i)d=d:sub(1,i-1)..string.char(b~k{i}[(i-1)%{key_len}+1])..d:sub(i+1)end')
+        decryption_code.append(f'for i=1,#d do local b=d:byte(i) d=d:sub(1,i-1)..string.char(b~k{i}[(i-1)%{key_len}+1])..d:sub(i+1) end')
     
     decryption_code.append('loadstring(d)()')
     
@@ -192,6 +199,10 @@ def obfuscate_luau_advanced(code, junk_amount=5, xor_layers=2):
 def obfuscate():
     """Endpoint để obfuscate mã Luau"""
     try:
+        # Kiểm tra xem request có phải là JSON không
+        if not request.is_json:
+            return jsonify({'error': 'Request must be JSON'}), 400
+            
         data = request.get_json()
         if not data or 'code' not in data:
             return jsonify({'error': 'No code provided'}), 400
@@ -199,6 +210,10 @@ def obfuscate():
         code = data['code']
         junk_amount = data.get('junk_amount', 5)
         xor_layers = data.get('xor_layers', 2)
+        
+        # Kiểm tra code không rỗng
+        if not code.strip():
+            return jsonify({'error': 'Code is empty'}), 400
         
         obfuscated_code = obfuscate_luau_advanced(code, junk_amount, xor_layers)
         
@@ -221,12 +236,19 @@ def obfuscate_file():
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
         
-        if not (file.filename.endswith('.lua') or file.filename.endswith('.txt')):
-            return jsonify({'error': 'Invalid file type'}), 400
+        if not (file.filename.endswith('.lua') or file.filename.endswith('.txt') or file.filename.endswith('.luau')):
+            return jsonify({'error': 'Invalid file type. Only .lua, .luau, and .txt files are allowed'}), 400
         
+        # Đọc và decode file
         code = file.read().decode('utf-8')
+        
+        # Lấy tham số từ form
         junk_amount = int(request.form.get('junk_amount', 5))
         xor_layers = int(request.form.get('xor_layers', 2))
+        
+        # Kiểm tra code không rỗng
+        if not code.strip():
+            return jsonify({'error': 'File is empty'}), 400
         
         obfuscated_code = obfuscate_luau_advanced(code, junk_amount, xor_layers)
         
@@ -248,7 +270,19 @@ def obfuscate_file():
 @app.route('/health', methods=['GET'])
 def health_check():
     """Endpoint kiểm tra tình trạng server"""
-    return jsonify({'status': 'healthy'})
+    return jsonify({'status': 'healthy', 'service': 'Luau Obfuscator'})
+
+@app.route('/', methods=['GET'])
+def index():
+    """Trang chủ"""
+    return jsonify({
+        'message': 'Luau Obfuscator Server',
+        'endpoints': {
+            'POST /obfuscate': 'Obfuscate Lua code',
+            'POST /obfuscate_file': 'Obfuscate Lua file',
+            'GET /health': 'Health check'
+        }
+    })
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
