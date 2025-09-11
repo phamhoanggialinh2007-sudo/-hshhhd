@@ -4,7 +4,6 @@ import re
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from io import BytesIO
-import math
 
 app = Flask(__name__)
 CORS(app)  # Cho phép truy cập từ các domain khác
@@ -48,7 +47,8 @@ def generate_luau_junk_statements(count=5):
         "local {1} = typeof({2})",
         "task.spawn(function() {2} end)",
         "local {1} = Instance.new('Part')",
-        "local {1} = game:GetService('{2}')"
+        "local {1} = game:GetService('{2}')",
+        "local {1} = bit32.bxor({2}, {3})"
     ]
     
     junk_statements = []
@@ -83,7 +83,8 @@ def obfuscate_luau_names(code):
     reserved_words = {
         'and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function', 
         'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 'repeat', 'return', 
-        'then', 'true', 'until', 'while', 'continue', 'typeof', 'task', 'self'
+        'then', 'true', 'until', 'while', 'continue', 'typeof', 'task', 'self',
+        'bit32'
     }
     
     # Tìm tất cả các định danh
@@ -145,7 +146,7 @@ def insert_luau_junk_code(code, junk_count=5):
     return ''.join(statements)
 
 def generate_luau_decryption_code(encrypted_data, keys):
-    """Tạo mã giải mã ngắn gọn và hiệu quả cho Luau"""
+    """Tạo mã giải mã ngắn gọn và hiệu quả cho Luau sử dụng bit32.bxor"""
     # Chuyển dữ liệu đã mã hóa thành chuỗi byte
     byte_array = ','.join(str(b) for b in encrypted_data)
     
@@ -163,10 +164,10 @@ def generate_luau_decryption_code(encrypted_data, keys):
     # Tạo dữ liệu mã hóa
     decryption_code.append(f'local d=string.char(unpack({{{byte_array}}}))')
     
-    # Giải mã từng lớp
+    # Giải mã từng lớp sử dụng bit32.bxor
     for i in range(len(keys)-1, -1, -1):
         key_len = len(keys[i])
-        decryption_code.append(f'for i=1,#d do local b=d:byte(i) d=d:sub(1,i-1)..string.char(b~k{i}[(i-1)%{key_len}+1])..d:sub(i+1) end')
+        decryption_code.append(f'for i=1,#d do local b=d:byte(i) d=d:sub(1,i-1)..string.char(bit32.bxor(b,k{i}[(i-1)%{key_len}+1]))..d:sub(i+1) end')
     
     decryption_code.append('loadstring(d)()')
     
