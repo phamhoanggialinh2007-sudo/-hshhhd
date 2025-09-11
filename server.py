@@ -4,10 +4,9 @@ import re
 from flask import Flask, request, jsonify
 import math
 from flask_cors import CORS
-CORS(app)
 
 app = Flask(__name__)
-
+CORS(app)
 def generate_random_name(length=2):
     """Tạo tên ngẫu nhiên với độ dài chỉ định"""
     chars = string.ascii_letters + string.digits
