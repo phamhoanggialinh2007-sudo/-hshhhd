@@ -1,16 +1,19 @@
 import random
 import string
 import re
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
+from io import BytesIO
 import math
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
+
 def generate_random_name(length=2):
-    """Tạo tên ngẫu nhiên với độ dài chỉ định"""
-    chars = string.ascii_letters + string.digits
-    return ''.join(random.choice(chars) for _ in range(length))
+    """Tạo tên ngẫu nhiên với độ dài chỉ định - tối ưu cho Luau"""
+    first_char = random.choice(string.ascii_letters + '_')
+    rest_chars = ''.join(random.choice(string.ascii_letters + string.digits + '_') for _ in range(length-1))
+    return first_char + rest_chars
 
 def multi_layer_xor(data, layers=2):
     """Mã hóa nhiều lớp XOR với các key ngẫu nhiên - tối ưu hóa"""
@@ -25,44 +28,63 @@ def multi_layer_xor(data, layers=2):
     
     return encrypted_data, keys
 
-def generate_junk_statements(count=5):
-    """Tạo các câu lệnh rác ngẫu nhiên để chèn vào code"""
+def generate_luau_junk_statements(count=5):
+    """Tạo các câu lệnh rác ngẫu nhiên tương thích với Luau"""
     junk_templates = [
-        "if {} then local {}={} end",
-        "for {}={},{} do local {}={} end",
-        "while {} do break end",
-        "repeat until {}",
-        "local {}={}",
-        "local function {}(...) return {} end",
-        "{}={}",
-        "do local {}={} end"
+        "if {0} then local {1}={2} end",
+        "for {1}={2},{3} do local {4}={5} end",
+        "while {0} do break end",
+        "repeat until {0}",
+        "local {1}={2}",
+        "local function {1}(...) return {2} end",
+        "{1}={2}",
+        "do local {1}={2} end",
+        "local {1} = function() return {2} end",
+        "if not {0} then else end",
+        "::{1}:: goto {1}",
+        "local {1} = {{{2}}}",
+        "local {1} = setmetatable({{}}, {{}})",
+        "local {1} = typeof({2})",
+        "task.spawn(function() {2} end)"
     ]
     
     junk_statements = []
     for _ in range(count):
         template = random.choice(junk_templates)
-        vars_needed = template.count('{}')
-        vars = [generate_random_name() for _ in range(vars_needed)]
+        vars_needed = template.count('{')
+        vars_list = [generate_random_name() for _ in range(vars_needed)]
         
-        # Tạo giá trị ngẫu nhiên
+        # Tạo giá trị ngẫu nhiên tương thích với Luau
         values = []
         for i in range(vars_needed):
-            if i % 3 == 0:
+            if i % 4 == 0:
+                values.append(random.choice(['true', 'false', 'nil']))
+            elif i % 4 == 1:
                 values.append(str(random.randint(1, 100)))
-            elif i % 3 == 1:
+            elif i % 4 == 2:
                 values.append(f'"{generate_random_name(4)}"')
             else:
-                values.append(random.choice(['true', 'false', 'nil']))
+                values.append("{}")
         
         junk_statements.append(template.format(*values))
     
     return junk_statements
 
-def obfuscate_names(code):
-    """Đổi tên biến và hàm thành tên ngẫu nhiên - cải tiến"""
+def obfuscate_luau_names(code):
+    """Đổi tên biến và hàm thành tên ngẫu nhiên - tối ưu cho Luau"""
     # Tìm tất cả các biến và hàm không phải từ khóa
-    pattern = r'\b(?!local|function|end|if|then|else|elseif|for|while|do|repeat|until|return|break|true|false|nil|and|or|not|in)([a-zA-Z_][a-zA-Z0-9_]*)\b'
-    identifiers = set(re.findall(pattern, code))
+    reserved_words = {
+        'and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function', 
+        'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 'repeat', 'return', 
+        'then', 'true', 'until', 'while', 'continue', 'typeof', 'task'
+    }
+    
+    # Tìm tất cả các định danh
+    pattern = r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b'
+    identifiers = re.findall(pattern, code)
+    
+    # Lọc ra các từ khóa và chỉ lấy các định danh có thể đổi tên
+    identifiers = [id for id in identifiers if id not in reserved_words and not id.isdigit()]
     
     # Tạo ánh xạ tên mới
     mapping = {}
@@ -70,18 +92,27 @@ def obfuscate_names(code):
         # Giữ nguyên các phương thức đối tượng (dạng obj:method)
         if ':' in identifier:
             continue
-        mapping[identifier] = generate_random_name()
+            
+        # Giữ nguyên các biến toàn cục (không có local)
+        if not re.search(r'\blocal\s+' + re.escape(identifier), code):
+            continue
+            
+        if identifier not in mapping:
+            mapping[identifier] = generate_random_name()
     
     # Thay thế tên
     for old_name, new_name in mapping.items():
         code = re.sub(r'\b' + re.escape(old_name) + r'\b', new_name, code)
     
-    return code
+    return code, mapping
 
-def flatten_code(code):
-    """Làm phẳng mã: xóa comment, khoảng trắng thừa, xuống dòng"""
-    # Xóa comment
+def flatten_luau_code(code):
+    """Làm phẳng mã Luau: xóa comment, khoảng trắng thừa, xuống dòng"""
+    # Xóa comment một dòng
     code = re.sub(r'--.*$', '', code, flags=re.MULTILINE)
+    
+    # Xóa comment nhiều dòng
+    code = re.sub(r'--\[\[.*?\]\]', '', code, flags=re.DOTALL)
     
     # Xóa khoảng trắng thừa và xuống dòng
     code = re.sub(r'\s+', ' ', code)
@@ -89,63 +120,68 @@ def flatten_code(code):
     
     return code.strip()
 
-def insert_junk_code(code, junk_count=5):
-    """Chèn mã rác vào các vị trí ngẫu nhiên trong code"""
-    lines = code.split(';')
-    if len(lines) <= 1:
+def insert_luau_junk_code(code, junk_count=5):
+    """Chèn mã rác vào các vị trí ngẫu nhiên trong code Luau"""
+    # Tách code thành các câu lệnh
+    statements = re.split(r'(;|\bend\b|\belse\b|\belseif\b|\bthen\b)', code)
+    
+    if len(statements) <= 1:
         return code
     
-    junk_statements = generate_junk_statements(junk_count)
+    junk_statements = generate_luau_junk_statements(junk_count)
     
     # Chèn junk code vào các vị trí ngẫu nhiên
     for junk in junk_statements:
-        pos = random.randint(0, len(lines) - 1)
-        lines.insert(pos, junk)
+        pos = random.randint(0, len(statements) - 1)
+        statements.insert(pos, junk + ';')
     
-    return ';'.join(lines)
+    return ''.join(statements)
 
-def generate_decryption_code(encrypted_data, keys):
-    """Tạo mã giải mã ngắn gọn và hiệu quả"""
+def generate_luau_decryption_code(encrypted_data, keys):
+    """Tạo mã giải mã ngắn gọn và hiệu quả cho Luau"""
     # Chuyển dữ liệu đã mã hóa thành chuỗi byte
     byte_array = ','.join(str(b) for b in encrypted_data)
     
-    # Tạo mã giải mã
+    # Tạo mã giải mã tối ưu cho Luau
     decryption_code = []
     
     # Tạo key strings
+    key_strings = []
     for i, key in enumerate(keys):
         key_str = '{' + ','.join(str(b) for b in key) + '}'
-        decryption_code.append(f'local k{i}={key_str}')
+        key_strings.append(f'k{i}={key_str}')
     
-    # Tạo mã giải mã
+    decryption_code.append(f'local {",".join(key_strings)}')
+    
+    # Tạo dữ liệu mã hóa
     decryption_code.append(f'local d=string.char(unpack({{{byte_array}}}))')
     
     # Giải mã từng lớp
     for i in range(len(keys)-1, -1, -1):
         key_len = len(keys[i])
-        decryption_code.append(f'd=d:gsub(".",function(c)return string.char(c:byte()~k{i}[(c:byte()%{key_len})+1])end)')
+        decryption_code.append(f'for i=1,#d do local b=d:byte(i)d=d:sub(1,i-1)..string.char(b~k{i}[(i-1)%{key_len}+1])..d:sub(i+1)end')
     
     decryption_code.append('loadstring(d)()')
     
     return ';'.join(decryption_code)
 
-def obfuscate_luau(code, junk_amount=5, xor_layers=2):
+def obfuscate_luau_advanced(code, junk_amount=5, xor_layers=2):
     """Hàm chính để obfuscate mã Luau - phiên bản tối ưu"""
     try:
         # Bước 1: Đổi tên biến và hàm
-        code = obfuscate_names(code)
+        code, mapping = obfuscate_luau_names(code)
         
         # Bước 2: Làm phẳng mã
-        code = flatten_code(code)
+        code = flatten_luau_code(code)
         
         # Bước 3: Chèn mã rác
-        code = insert_junk_code(code, junk_amount)
+        code = insert_luau_junk_code(code, junk_amount)
         
         # Bước 4: Mã hóa nhiều lớp XOR
         encrypted_data, keys = multi_layer_xor(code, xor_layers)
         
         # Bước 5: Tạo mã giải mã và thực thi
-        final_code = generate_decryption_code(encrypted_data, keys)
+        final_code = generate_luau_decryption_code(encrypted_data, keys)
         
         return final_code
     
@@ -164,12 +200,47 @@ def obfuscate():
         junk_amount = data.get('junk_amount', 5)
         xor_layers = data.get('xor_layers', 2)
         
-        obfuscated_code = obfuscate_luau(code, junk_amount, xor_layers)
+        obfuscated_code = obfuscate_luau_advanced(code, junk_amount, xor_layers)
         
         return jsonify({
             'obfuscated_code': obfuscated_code,
             'status': 'success'
         })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/obfuscate_file', methods=['POST'])
+def obfuscate_file():
+    """Endpoint để obfuscate file Luau"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not (file.filename.endswith('.lua') or file.filename.endswith('.txt')):
+            return jsonify({'error': 'Invalid file type'}), 400
+        
+        code = file.read().decode('utf-8')
+        junk_amount = int(request.form.get('junk_amount', 5))
+        xor_layers = int(request.form.get('xor_layers', 2))
+        
+        obfuscated_code = obfuscate_luau_advanced(code, junk_amount, xor_layers)
+        
+        # Trả về file đã obfuscate
+        output = BytesIO()
+        output.write(obfuscated_code.encode('utf-8'))
+        output.seek(0)
+        
+        return send_file(
+            output,
+            as_attachment=True,
+            download_name='obfuscated_' + file.filename,
+            mimetype='text/plain'
+        )
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
